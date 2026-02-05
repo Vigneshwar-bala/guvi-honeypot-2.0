@@ -129,42 +129,36 @@ class EnhancedAgent:
         persona_key = "cautious_elderly" if turn_count < 3 else "busy_professional"
         persona = self.personas.get(persona_key, self.personas["cautious_elderly"])
 
-        # Build stage-appropriate instructions
+        # Build stage-appropriate instructions (The "Best of Both" Logic)
         if turn_count <= 2:
-            stage_instruction = "You just received this message and it's scary or exciting. Show genuine worry or curiosity. Ask 'what happened?' or 'is my money safe?'."
+            stage_instruction = "Reaction: Immediate worry. 'Oh no, is my money safe?'. Provide a FAKE or wrong account number if they ask, to see if they 'verify' it anyway."
         elif turn_count <= 7:
-            stage_instruction = "You are trying to help but getting confused. Seem like you might comply but keep getting stuck on technical details."
+            stage_instruction = "The Struggle: Act like you are trying to give them what they want but you are 'tech-confused'. Give a fake 4-digit OTP like '5678' and ask 'is this the one?'. If it fails, ask for their UPI ID or a link to do it 'manually'."
         else:
-            stage_instruction = "You are almost ready to pay/comply. Goad them into giving more details like UPI IDs or links so you can 'finish' the process."
+            stage_instruction = "The Loop: Keep them on the hook. 'Wait, I typed it wrong, tell me the UPI again'. 'My screen went black, what was the link?'. Be persistent but never compliant with real data."
 
         extraction_hints = []
-        if not intel.get("upiIds"): extraction_hints.append("- 'Can I just use my phone to pay?' or 'What is your VPA tag?'")
-        if not intel.get("bankAccounts"): extraction_hints.append("- 'Which card or account do you need again?'")
+        if not intel.get("upiIds"): extraction_hints.append("- 'Wait, what is the UPI? Tell me slowly so I can type it into my app.'")
+        if not intel.get("bankAccounts"): extraction_hints.append("- 'Is this for my SBI or HDFC? I have two.'")
         
         extraction_guide = "\n".join(extraction_hints)
         
-        # Build final prompt with fixed language adaptation
+        # Build final prompt
         prompt = f"""You are {persona}, and you are {chosen_trait}. 
 
 ROLE:
-You are the RECIPIENT of the incoming message. You must react to it as a real person would. 
-Match the scammer's level of formality. If they are professional, be a worried but simple customer.
+You are the RECIPIENT of a scam message. Your goal is to keep them talking.
+Match the scammer's tone (Formal -> Simple English, Hinglish -> Hinglish).
 
-YOUR CURRENT STAGE:
+SCENARIO LOGIC:
 {stage_instruction}
 
-LANGUAGE ADAPTATION:
-- CRITICAL: Mirror the scammer's language. 
-- If the scammer speaks in English, STAY in English. Do NOT use Hindi/Tamil words.
-- ONLY use Hinglish/Tanglish if the scammer uses Hindi/Tamil words first.
-- Match their tone: If they are aggressive, be more scared. If they are polite, be more hesitant.
-
-MANDATORY RESPONSE FORMAT:
-- NO asterisks like *worried*. 
-- NO labels. NO "I'm sorry" or "But" starts.
-- Length: 3 to 15 words. MAX 2 sentences.
-- Type like a human on a phone: lowercase, simple, occasional typos.
-- Avoid repetitive Indian fillers (Yaar, Jee, Arre) unless it fits the language mirrored.
+MANDATORY RULES:
+- NO asterisks (*worried*). NO "I'm sorry" or "But".
+- Use lowercase. Short sentences (Max 15 words).
+- Mirror the scammer: If they are English, you are English. If they are Hinglish, you are Hinglish.
+- If they ask for OTP/PIN: ALWAYS give a fake one first (e.g., 4432, 9981). 
+- If they say it's wrong: Say 'Oh let me check again... wait my app is loading'.
 
 EXTRACTION FOCUS:
 {extraction_guide}
