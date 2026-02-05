@@ -66,19 +66,33 @@ class EnhancedAgent:
             response = self.client.chat.completions.create(
                 model="anthropic/claude-3-haiku",
                 messages=messages,
-                temperature=0.9,  # Increased for more variability
+                temperature=1.0,  # Max temperature for ultimate variety
                 max_tokens=150,
                 top_p=0.9
             )
             
             result = response.choices[0].message.content.strip()
             
-            # Post-processing: Remove any pesky emotion tags likely to be hallucinated
+            # Post-processing: CRITICAL CLEANING
             import re
-            # Remove anything between asterisks
+            
+            # 1. Remove anything between asterisks
             result = re.sub(r'\*.*?\*', '', result).strip()
-            # Remove leading bullet points or common emotion labels followed by colon or space
-            result = re.sub(r'^(worried|hesitant|confused|scared|suspicious|concerned)[:\s]+', '', result, flags=re.IGNORECASE).strip()
+            
+            # 2. Remove repetitive AI phrases at the start
+            forbidden_starts = [
+                r"^i'm sorry", r"^sorry", r"^i apologize", r"^but", r"^i understand", 
+                r"^as a", r"^however", r"^wait,"
+            ]
+            for pattern in forbidden_starts:
+                result = re.sub(pattern, '', result, flags=re.IGNORECASE).strip()
+            
+            # 3. Final cleanup - remove leading symbols or stray punctuation from cleaning
+            result = re.sub(r'^[,.\s!]+', '', result).strip()
+            
+            # 4. Capitalize first letter if it was lost in cleaning
+            if result:
+                result = result[0].upper() + result[1:]
             
             print(f"[EnhancedAgent] ✅ Response generated: {len(result)} chars")
             
@@ -101,42 +115,44 @@ class EnhancedAgent:
         """Build adaptive system prompt based on scam type and context"""
         
         intel = session.get("extractedIntelligence", {})
-        scam_type = intel.get("scamType", "unknown")
         turn_count = session.get("turnCount", 0)
         
-        # Persona selection logic...
+        # Randomize personality slightly to break patterns
+        personalities = [
+            "a bit scatterbrained and easily distracted",
+            "very worried about their savings and keeps asking 'is my money okay?'",
+            "suspicious of technology but trusts 'official' sounding people",
+            "impatient and wants to get this over with because they are 'cooking dinner'"
+        ]
+        chosen_trait = random.choice(personalities)
+        
         persona_key = "cautious_elderly" if turn_count < 3 else "busy_professional"
         persona = self.personas.get(persona_key, self.personas["cautious_elderly"])
         
-        # Build stage-appropriate instructions
-        if turn_count <= 2:
-            stage_instruction = "Show confusion and worry. Ask basic questions."
-        elif turn_count <= 7:
-            stage_instruction = "Engage deeper. Seem like you might comply but are 'stuck' or need help."
-        else:
-            stage_instruction = "Directly ask for the details we need (UPI, links) while pretending to be ready to pay."
-
+        # Extraction logic...
         extraction_hints = []
-        if not intel.get("upiIds"): extraction_hints.append("- 'Wait, what's a UPI ID?' or 'Can I just send to your phone number?'")
-        if not intel.get("bankAccounts"): extraction_hints.append("- 'Do I need to give you my card or just the account?'")
+        if not intel.get("upiIds"): extraction_hints.append("- 'Can I just use my phone to pay?'")
+        if not intel.get("bankAccounts"): extraction_hints.append("- 'Which card do you need?'")
         
         extraction_guide = "\n".join(extraction_hints)
         
-        # Build final prompt with extreme focus on format
-        prompt = f"""You are {persona}. 
+        prompt = f"""You are {persona}, and you are {chosen_trait}.
 
-MANDATORY RESPONSE FORMAT:
-- NO asterisks like *worried*. 
-- NO descriptions of your tone.
-- NO labels at the start.
-- Length MUST be variable: sometimes just 3 words, sometimes 15 words.
-- MAX 2 sentences. 
-- Type like a human on a phone: small mistakes are okay, lowercase is okay.
+CRITICAL: NEVER START WITH "I'm sorry", "Sorry", or "But". 
+Avoid repetitive opening phrases. Jump straight into your question or confusion.
+
+MANDATORY RULES:
+- NO asterisks (*worried*).
+- NO AI apologies.
+- Responses must be unique and vary in structure.
+- Use messy, natural human typing (lowercase, missing commas).
+- If you're "stuck", ask a specific question like "where do i see the code?" or "is this the sbi app?".
+- Keep it under 20 words.
 
 YOUR GOAL:
-Stay engaged. Don't be too smart. Act like you are trying to follow their instructions but are confused.
+Act like a real person who is confused. Don't be a generic AI assistant.
 
-EXTRACTION GUIDE:
+EXTRACTION FOCUS:
 {extraction_guide}
 
 Respond naturally as {persona.split(',')[0]}."""
