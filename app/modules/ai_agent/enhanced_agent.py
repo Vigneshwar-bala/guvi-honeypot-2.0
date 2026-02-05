@@ -43,17 +43,6 @@ class EnhancedAgent:
     ) -> str:
         """
         Generate intelligent, context-aware response
-        
-        Args:
-            session: Session data with intelligence
-            conversation_history: Previous messages
-            latest_message: Current scammer message
-            metadata: Channel, language, locale info
-            scam_detected: Whether scam was detected
-            confidence: Detection confidence score
-        
-        Returns:
-            Human-like response string
         """
         try:
             print("\n[EnhancedAgent] Starting response generation...")
@@ -73,38 +62,33 @@ class EnhancedAgent:
                 system_prompt=system_prompt
             )
             
-            print(f"[EnhancedAgent] System prompt length: {len(system_prompt)}")
-            print(f"[EnhancedAgent] Message count: {len(messages)}")
-            print(f"[EnhancedAgent] Calling OpenRouter API...")
-            
             # Call LLM
             response = self.client.chat.completions.create(
-                model="anthropic/claude-3-haiku",  # More reliable model
+                model="anthropic/claude-3-haiku",
                 messages=messages,
-                temperature=0.8,  # Higher for more natural variation
-                max_tokens=200,
+                temperature=0.9,  # Increased for more variability
+                max_tokens=150,
                 top_p=0.9
             )
             
             result = response.choices[0].message.content.strip()
             
-            print(f"[EnhancedAgent] ✅ Response generated: {len(result)} chars")
-            print(f"[EnhancedAgent] Preview: {result[:100]}...")
+            # Post-processing: Remove any pesky emotion tags likely to be hallucinated
+            import re
+            # Remove anything between asterisks
+            result = re.sub(r'\*.*?\*', '', result).strip()
+            # Remove leading bullet points or common emotion labels followed by colon or space
+            result = re.sub(r'^(worried|hesitant|confused|scared|suspicious|concerned)[:\s]+', '', result, flags=re.IGNORECASE).strip()
             
-            if not result or len(result) < 5:
-                print("[EnhancedAgent] ⚠️  Response too short, using fallback")
+            print(f"[EnhancedAgent] ✅ Response generated: {len(result)} chars")
+            
+            if not result or len(result) < 2:
                 return self._get_fallback_response(session, metadata)
             
             return result
         
         except Exception as e:
-            print(f"[EnhancedAgent] ❌ Error: {type(e).__name__}: {str(e)}")
-            print(f"[EnhancedAgent] ❌ API Key present: {'Yes' if self.api_key else 'No'}")
-            print(f"[EnhancedAgent] ❌ Model used: anthropic/claude-3-haiku")
-            print(f"[EnhancedAgent] ❌ Messages count: {len(messages)}")
-            print(f"[EnhancedAgent] ❌ System prompt preview: {system_prompt[:200]}...")
-            import traceback
-            traceback.print_exc()
+            print(f"[EnhancedAgent] ❌ Error: {str(e)}")
             return self._get_fallback_response(session, metadata)
     
     def _build_adaptive_prompt(
@@ -120,91 +104,40 @@ class EnhancedAgent:
         scam_type = intel.get("scamType", "unknown")
         turn_count = session.get("turnCount", 0)
         
-        # Select appropriate persona
-        if turn_count < 3:
-            persona_key = "cautious_elderly"
-        elif scam_type in ["banking_fraud", "UPI_fraud"]:
-            persona_key = "busy_professional"
-        elif scam_type == "lottery_scam":
-            persona_key = "tech_novice"
-        else:
-            persona_key = random.choice(list(self.personas.keys()))
-        
-        persona = self.personas[persona_key]
-        
-        # Get context info
-        channel = metadata.get("channel", "SMS")
-        language = metadata.get("language", "English")
-        locale = metadata.get("locale", "IN")
+        # Persona selection logic...
+        persona_key = "cautious_elderly" if turn_count < 3 else "busy_professional"
+        persona = self.personas.get(persona_key, self.personas["cautious_elderly"])
         
         # Build stage-appropriate instructions
         if turn_count <= 2:
-            # Early stage: Show curiosity and concern
-            stage_instruction = """
-You just received a suspicious message. You're a bit worried but also curious.
-- Ask clarifying questions naturally
-- Show concern about your account/money
-- Don't immediately dismiss the message
-- Be conversational and human-like
-- Keep responses SHORT (1-2 sentences max)
-"""
-        elif turn_count <= 6:
-            # Middle stage: Engage more, extract info
-            stage_instruction = """
-You're now engaged in the conversation. You're concerned and want to understand more.
-- Ask specific questions to learn more details
-- Show appropriate worry/interest
-- Gradually ask for specifics (like account numbers, links, phone numbers)
-- Seem like you might comply, but need more information first
-- Keep responses SHORT (1-2 sentences max)
-"""
+            stage_instruction = "Show confusion and worry. Ask basic questions."
+        elif turn_count <= 7:
+            stage_instruction = "Engage deeper. Seem like you might comply but are 'stuck' or need help."
         else:
-            # Late stage: Deep engagement, intelligence extraction
-            stage_instruction = """
-You're deeply engaged now. You're seriously considering their request.
-- Ask very specific questions about process, accounts, payment methods
-- Request exact details (UPI IDs, bank accounts, verification links)
-- Show you're almost ready to comply but need final clarification
-- Be believable - don't seem suspicious or too eager
-- Keep responses SHORT (1-2 sentences max)
-"""
-        
-        # Intelligence extraction hints based on what's missing
+            stage_instruction = "Directly ask for the details we need (UPI, links) while pretending to be ready to pay."
+
         extraction_hints = []
-        if not intel.get("upiIds"):
-            extraction_hints.append("- Try to get them to mention UPI IDs or payment addresses")
-        if not intel.get("bankAccounts"):
-            extraction_hints.append("- Ask about bank account numbers if relevant")
-        if not intel.get("phishingLinks"):
-            extraction_hints.append("- Request verification links or websites")
-        if not intel.get("phoneNumbers"):
-            extraction_hints.append("- Ask for phone numbers for verification")
+        if not intel.get("upiIds"): extraction_hints.append("- 'Wait, what's a UPI ID?' or 'Can I just send to your phone number?'")
+        if not intel.get("bankAccounts"): extraction_hints.append("- 'Do I need to give you my card or just the account?'")
         
-        extraction_guide = "\n".join(extraction_hints) if extraction_hints else ""
+        extraction_guide = "\n".join(extraction_hints)
         
-        # Build final prompt
+        # Build final prompt with extreme focus on format
         prompt = f"""You are {persona}. 
 
-SCENARIO:
-You are receiving messages on {channel}. You are in {locale} and speak {language}.
-This is turn #{turn_count} of the conversation.
+MANDATORY RESPONSE FORMAT:
+- NO asterisks like *worried*. 
+- NO descriptions of your tone.
+- NO labels at the start.
+- Length MUST be variable: sometimes just 3 words, sometimes 15 words.
+- MAX 2 sentences. 
+- Type like a human on a phone: small mistakes are okay, lowercase is okay.
 
 YOUR GOAL:
-Stay in the conversation as long as possible. Be a "believable victim". 
-{stage_instruction}
+Stay engaged. Don't be too smart. Act like you are trying to follow their instructions but are confused.
 
-INTELLIGENCE EXTRACTION (Gently ask about these if they aren't provided):
+EXTRACTION GUIDE:
 {extraction_guide}
-
-CRITICAL COMMUNICATION RULES:
-- NEVER use asterisks or describe your emotions (No *worried*, *hesitant*, etc).
-- NEVER use formal greeting or robotic structure.
-- STICK TO 1-2 SHORT SENTENCES (Max 25 words).
-- Be slightly confused or tech-illiterate.
-- Use natural, informal language (e.g., "Wait, what?", "I'm not sure", "Is this real?").
-- If they ask for an OTP, don't say "I won't give it", say "Where do I find the OTP?" or "I didn't get any code yet".
-- Make it seem like you WANT to help but are just a bit slow or scared.
-- NEVER mention being an AI, bot, or honeypot.
 
 Respond naturally as {persona.split(',')[0]}."""
 
@@ -216,31 +149,25 @@ Respond naturally as {persona.split(',')[0]}."""
         latest_message: str,
         system_prompt: str
     ) -> List[Dict]:
-        """Build properly formatted message list for API"""
-        
+        """Build properly formatted message list for API with history cleaning"""
+        import re
         messages = [{"role": "system", "content": system_prompt}]
         
-        # Add conversation history
         for msg in conversation_history:
-            # Handle both dict and Pydantic object
             if hasattr(msg, 'sender'):
-                sender = msg.sender
-                text = msg.text
+                sender, text = msg.sender, msg.text
             else:
-                sender = msg.get("sender", "user")
-                text = msg.get("text", "")
+                sender, text = msg.get("sender", "user"), msg.get("text", "")
             
-            # Map sender to role
-            # scammer's messages = user role (from AI's perspective)
-            # user's responses = assistant role (AI's previous responses)
+            # CLEAN HISTORY: Strip any existing tags from the history so the model doesn't copy them
+            clean_text = re.sub(r'\*.*?\*', '', text).strip()
+            
             if sender == "scammer":
-                messages.append({"role": "user", "content": text})
-            else:  # sender == "user" (our agent's previous responses)
-                messages.append({"role": "assistant", "content": text})
+                messages.append({"role": "user", "content": clean_text})
+            else:
+                messages.append({"role": "assistant", "content": clean_text})
         
-        # Add latest scammer message
         messages.append({"role": "user", "content": latest_message})
-        
         return messages
     
     def _get_fallback_response(self, session: dict, metadata: dict) -> str:
