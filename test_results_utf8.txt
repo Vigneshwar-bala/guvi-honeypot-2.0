@@ -1,0 +1,32 @@
+﻿
+Sending Message: Hello, I am from your bank. Urgent action required.
+Status Code: 200
+Response JSON:
+{
+    "status": "success",
+    "reply": "Wait, my bank account is at risk? I don't really understand these technical things. Can you help me step by step?"
+}
+
+Sending Message: Your KYC is pending. Please verify at http://scam-link.com
+Status Code: 200
+Response JSON:
+{
+    "status": "success",
+    "reply": "Wait, my bank account is at risk? I don't really understand these technical things. Can you help me step by step?"
+}
+
+Sending Message: Send 5000 to upi@vpa to avoid account block.
+Status Code: 200
+Response JSON:
+{
+    "status": "success",
+    "reply": "I tried the ID you sent but it didn't work. Is there a specific app I should use?"
+}
+
+Sending Message: Are you there? Send it now!
+Status Code: 200
+Response JSON:
+{
+    "status": "success",
+    "reply": "Are you still there? I'm trying to follow but I'm a bit slow with this."
+}

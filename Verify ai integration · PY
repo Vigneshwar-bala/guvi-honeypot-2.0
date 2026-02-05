@@ -1,0 +1,76 @@
+import requests
+import json
+
+# Test to verify if AI integration is working
+
+url = "http://127.0.0.1:8000/honeypot/message"
+api_key = "guvi-honeypot-demo-key"
+
+headers = {
+    "x-api-key": api_key,
+    "Content-Type": "application/json"
+}
+
+print("=" * 70)
+print("VERIFYING AI INTEGRATION")
+print("=" * 70)
+
+# Send 3 identical messages - if AI is working, responses should be DIFFERENT
+test_message = "Your bank account will be blocked. Verify immediately."
+
+print(f"\nSending the SAME message 3 times: '{test_message}'")
+print("\nIf responses are DIFFERENT each time = AI is working ✅")
+print("If responses are IDENTICAL each time = Still using hardcoded responses ❌\n")
+
+responses = []
+
+for i in range(3):
+    data = {
+        "sessionId": f"verify_test_{i}",  # Different session each time
+        "message": {
+            "sender": "scammer",
+            "text": test_message,
+            "timestamp": 1770005528731
+        },
+        "conversationHistory": [],
+        "metadata": {
+            "channel": "SMS",
+            "language": "English",
+            "locale": "IN"
+        }
+    }
+    
+    try:
+        response = requests.post(url, json=data, headers=headers)
+        if response.status_code == 200:
+            result = response.json()
+            reply = result.get('reply', '')
+            responses.append(reply)
+            print(f"Response {i+1}: {reply}")
+        else:
+            print(f"Error {i+1}: {response.status_code}")
+    except Exception as e:
+        print(f"Error {i+1}: {e}")
+
+print("\n" + "=" * 70)
+print("VERDICT:")
+print("=" * 70)
+
+# Check if responses are different
+if len(set(responses)) == 1:
+    print("❌ FAILED: All responses are IDENTICAL")
+    print("   This means hardcoded responses are still being used.")
+    print("\n   ACTION NEEDED:")
+    print("   1. Make sure you copied the ENTIRE AI_CODING_ASSISTANT_PROMPT.txt")
+    print("   2. Check if app/modules/ai_agent/grok_engine.py exists")
+    print("   3. Check if app/modules/member1/orchestrator.py imports grok_engine")
+    print("   4. Restart the server: uvicorn app.main:app --reload")
+elif len(set(responses)) >= 2:
+    print("✅ SUCCESS: Responses are DIFFERENT!")
+    print("   AI integration is working correctly.")
+    print(f"   Got {len(set(responses))} unique responses out of 3 attempts.")
+    print("\n   Your project is now truly AGENTIC! 🎉")
+else:
+    print("⚠️  INCONCLUSIVE: Need more tests")
+
+print("=" * 70)
