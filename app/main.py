@@ -209,39 +209,36 @@ async def honeypot_message(request: RequestPayload, x_api_key: str = Header(None
         # ============================================
         # STEP 7: ENHANCED INTELLIGENCE EXTRACTION (Member 2)
         # ============================================
-        # Extract intelligence from message using improved logic
-        intelligence = detect_scam_v2(
+        # Import perfect extraction module
+        from app.modules.member2.scam_detection import detect_scam_perfect
+
+        # Calculate EXACT message count (all messages including current one)
+        message_count = len(conversation_history) + 1
+
+        # Extract intelligence using PERFECT logic
+        intelligence = detect_scam_perfect(
             message=latest_message,
-            message_count=len(conversation_history) + 1
+            message_count=message_count  # FIXED: Use actual message count
         )
 
-        print(f"[honeypot_message] Intelligence Extraction Complete")
+        # Log extracted intelligence
+        print(f"\n[PERFECT EXTRACTION]")
+        print(f"[honeypot_message] Total Messages: {intelligence['totalMessagesExchanged']}")
         print(f"[honeypot_message] Bank Accounts: {intelligence['extractedIntelligence']['bankAccounts']}")
         print(f"[honeypot_message] UPI IDs: {intelligence['extractedIntelligence']['upiIds']}")
         print(f"[honeypot_message] Phone Numbers: {intelligence['extractedIntelligence']['phoneNumbers']}")
+        print(f"[honeypot_message] Phishing Links: {intelligence['extractedIntelligence']['phishingLinks']}")
+        print(f"[honeypot_message] Employee: {intelligence['extractedIntelligence']['employeeIdentity']}")
         print(f"[honeypot_message] Tactics: {intelligence['extractedIntelligence']['tacticPatterns']}")
         print(f"[honeypot_message] Scam Type: {intelligence['extractedIntelligence']['scamType']}")
         print(f"[honeypot_message] Sophistication: {intelligence['extractedIntelligence']['sophisticationLevel']}")
+        print(f"[honeypot_message] Notes: {intelligence['agentNotes']}")
 
-        # Store intelligence for analysis (optional - for logging/verification)
-        intelligence_output = {
-            "sessionId": request.sessionId,
-            "timestamp": datetime.now().isoformat(),
-            "intelligence": intelligence,
-            "honeypotReply": reply,
-        }
+        response_data = HoneypotResponse(status="success", reply=reply)
+        print(f"[honeypot_message] ✅ Returning response with PERFECT intelligence extraction")
+        print("=" * 100 + "\n")
 
-        # Log full extraction to console
-        print(f"\n[INTELLIGENCE OUTPUT]\n{json.dumps(intelligence_output, indent=2)}\n")
-
-        # ============================================
-        # STEP 8: RETURN RESPONSE
-        # ============================================
-        print("\n" + "="*100)
-        print(f"✅ REQUEST COMPLETED | Session: {request.sessionId} | Returning Response")
-        print("="*100 + "\n")
-        
-        return HoneypotResponse(status="success", reply=reply)
+        return response_data
 
     except HTTPException as he:
         # Re-raise HTTP exceptions to be handled by the specialized handler
