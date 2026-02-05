@@ -12,6 +12,142 @@ logger = logging.getLogger(__name__)
 _AI_INTEL_CACHE = {}
 _SOPHISTICATED_INTEL_STORE = {} # Map latest_message -> cumulative_intel
 
+SCAM_INTELLIGENCE_EXTRACTION_PROMPT = """You are a scam intelligence analyst. Extract ALL scam-related information from the conversation below.
+
+CRITICAL RULES:
+1. Extract EVERYTHING - phone numbers, account numbers, UPI IDs, keywords, tactics, names
+2. Output ONLY valid JSON - no explanations, no preamble, no markdown formatting
+3. If you find nothing in a category, use empty array []
+4. Be thorough - extract partial matches too
+5. ONLY extract names from SCAMMER messages, NEVER from honeypot/victim messages
+6. Return PURE JSON that can be directly parsed - no ```json``` markers, no extra text
+
+EXTRACTION CATEGORIES:
+
+scammerNames: Extract names ONLY from scammer's messages
+- Look for: "I'm [name]", "My name is [name]", "This is [name]", signatures
+- Include: first names, full names, aliases
+- CRITICAL: Ignore any names in honeypot/victim responses
+- Examples: "Rajesh Kumar", "Mr. Singh", "Agent Smith"
+
+phoneNumbers: Extract ALL phone numbers in ANY format
+- Include: +91-9876543210, 9876543210, +919876543210
+- Remove formatting, keep digits only with country code
+- Format output as: "919876543210" (country code + 10 digits)
+
+bankAccounts: Extract ALL account numbers
+- Any sequence of 10+ digits that looks like an account
+- Include partial matches if they appear to be accounts
+- Keep as strings to preserve leading zeros
+
+upiIds: Extract ALL UPI VPA addresses
+- Format: anything@something (e.g., scammer.fraud@fakebank)
+- Include all variations mentioned
+- Keep exact formatting as mentioned
+
+phishingLinks: Extract ALL URLs or suspicious domains
+- Include: http://, https://, www., or anything.com/org/net
+- Include domain names even without http
+
+suspiciousKeywords: Extract scam-related phrases (limit to top 10)
+- Examples: "urgent", "blocked", "OTP", "verify", "compromised", "fraud prevention"
+- Look for urgency, fear tactics, authority claims
+- Return as lowercase for consistency
+
+tacticPatterns: Identify scam tactics used (limit to top 5)
+- Examples: "urgency creation", "fear mongering", "authority impersonation", "OTP harvesting"
+- Be specific about the tactic
+- Use snake_case format: "urgency_creation", "fear_mongering"
+
+impersonationClaims: Who/what is the scammer claiming to be?
+- Examples: "SBI fraud prevention team", "bank official", "customer support"
+- Extract exact claims made
+
+organizationalClues: Any info about scammer's setup
+- Examples: "claims to be from SBI", "mentions branch/department", "provides employee ID"
+- Include departmental claims, branch mentions, employee IDs
+
+scamType: Primary scam category (single string, not array)
+- Options: "banking_fraud", "OTP_theft", "phishing", "vishing", "impersonation", "unknown"
+- Pick the MOST specific match
+- Default to "unknown" if unclear
+
+sophisticationLevel: How sophisticated is this scam? (single string, not array)
+- "low": Simple, obvious, generic messages
+- "medium": Personalized, uses real bank names, somewhat believable
+- "high": Highly convincing, professional, hard to detect
+
+CONVERSATION TO ANALYZE:
+{conversation_text}
+
+CRITICAL OUTPUT INSTRUCTIONS:
+1. Output MUST be valid JSON that can be parsed by JSON.parse() or json.loads()
+2. Do NOT wrap in ```json``` markdown code blocks
+3. Do NOT add any explanatory text before or after the JSON
+4. Do NOT add comments in the JSON
+5. Ensure all strings are properly escaped
+6. Use double quotes for all keys and string values
+7. Arrays should be [] if empty, never null or undefined
+
+OUTPUT FORMAT (EXACT STRUCTURE REQUIRED):
+{{
+  "scammerNames": [],
+  "phoneNumbers": [],
+  "bankAccounts": [],
+  "upiIds": [],
+  "phishingLinks": [],
+  "suspiciousKeywords": [],
+  "tacticPatterns": [],
+  "impersonationClaims": [],
+  "organizationalClues": [],
+  "scamType": "unknown",
+  "sophisticationLevel": "low"
+}}
+
+YOUR RESPONSE MUST START WITH {{ AND END WITH }}
+EXTRACT NOW - OUTPUT ONLY JSON:"""
+
+def clean_llm_json_response(response: str) -> str:
+    """Clean LLM response to extract pure JSON"""
+    cleaned = response.strip()
+    if cleaned.startswith("```json"):
+        cleaned = cleaned[7:]
+    elif cleaned.startswith("```"):
+        cleaned = cleaned[3:]
+    if cleaned.endswith("```"):
+        cleaned = cleaned[:-3]
+    start_idx = cleaned.find('{')
+    end_idx = cleaned.rfind('}')
+    if start_idx != -1 and end_idx != -1:
+        cleaned = cleaned[start_idx:end_idx + 1]
+    return cleaned.strip()
+
+def normalize_phone(phone: str) -> str:
+    """Normalize phone to standard format with country code"""
+    digits = re.sub(r'\D', '', phone)
+    if not digits: return ""
+    if len(digits) == 10:
+        return f"91{digits}"
+    return digits.lstrip('0')
+
+def normalize_intelligence(intel: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize and validate extracted intelligence"""
+    if 'phoneNumbers' in intel and isinstance(intel['phoneNumbers'], list):
+        intel['phoneNumbers'] = list(set([normalize_phone(p) for p in intel['phoneNumbers'] if p]))
+    
+    array_fields = [
+        'scammerNames', 'phoneNumbers', 'bankAccounts', 'upiIds',
+        'phishingLinks', 'suspiciousKeywords', 'tacticPatterns',
+        'impersonationClaims', 'organizationalClues'
+    ]
+    for field in array_fields:
+        if field not in intel or not isinstance(intel[field], list):
+            intel[field] = []
+    
+    if 'scamType' not in intel: intel['scamType'] = 'unknown'
+    if 'sophisticationLevel' not in intel: intel['sophisticationLevel'] = 'low'
+    return intel
+
 def detect_scam(session: dict, message: str) -> dict:
     """
     Detect scam intent and extract intelligence.
@@ -32,6 +168,9 @@ def detect_scam(session: dict, message: str) -> dict:
         'impersonationClaims': []
     }
     
+    # Cumulative Identity Tracking
+    cumulative_identity = {}
+    
     # Scan every message in history + current message
     all_texts = [m.get("text", "") for m in history]
     if message not in all_texts:
@@ -46,6 +185,12 @@ def detect_scam(session: dict, message: str) -> dict:
         cumulative_regex_intel['tacticPatterns'].extend(detector.extract_tactic_patterns(text))
         cumulative_regex_intel['organizationalClues'].extend(detector.extract_organizational_clues(text))
         cumulative_regex_intel['impersonationClaims'].extend(detector.extract_impersonation_claims(text))
+        
+        # Track identity across history
+        msg_identity = detector.extract_employee_identity(text)
+        for k, v in msg_identity.items():
+            if v and (k not in cumulative_identity or not cumulative_identity[k]):
+                cumulative_identity[k] = v
 
     # Deduplicate everything
     for k in cumulative_regex_intel:
@@ -53,15 +198,45 @@ def detect_scam(session: dict, message: str) -> dict:
 
     # 3. Merge AI result with Cumulative Regex
     # AI is the "brain" for complex fields, Regex is the "eye" for precise codes
-    final_extracted = {}
-    for field in cumulative_regex_intel:
-        regex_list = cumulative_regex_intel[field]
+    final_extracted = {
+        "scammerNames": [],
+        "phoneNumbers": [],
+        "bankAccounts": [],
+        "upiIds": [],
+        "phishingLinks": [],
+        "suspiciousKeywords": [],
+        "tacticPatterns": [],
+        "impersonationClaims": [],
+        "organizationalClues": [],
+        "scamType": "unknown",
+        "sophisticationLevel": "low"
+    }
+    
+    list_fields = [
+        'bankAccounts', 'upiIds', 'phishingLinks', 
+        'suspiciousKeywords', 'tacticPatterns', 'organizationalClues', 
+        'impersonationClaims'
+    ]
+    for field in list_fields:
+        regex_list = cumulative_regex_intel.get(field, [])
         ai_list = ai_result.get(field, [])
         if not isinstance(ai_list, list): ai_list = []
         final_extracted[field] = list(dict.fromkeys(regex_list + ai_list))
 
-    # Identity and Type logic
-    final_extracted['employeeIdentity'] = ai_result.get('employeeIdentity') or detector.extract_employee_identity(message)
+    # Phone normalization
+    raw_phones = cumulative_regex_intel.get('phoneNumbers', []) + ai_result.get('phoneNumbers', [])
+    final_extracted['phoneNumbers'] = list(dict.fromkeys([normalize_phone(p) for p in raw_phones if p]))
+
+    # Identity merging
+    ai_names = ai_result.get('scammerNames', [])
+    if not isinstance(ai_names, list): ai_names = []
+    reg_name = cumulative_identity.get('name')
+    final_extracted['scammerNames'] = list(dict.fromkeys(ai_names + ([reg_name] if reg_name else [])))
+    
+    # Store legacy identity just in case, though schema is now different
+    final_extracted['employeeIdentity'] = cumulative_identity
+
+    # Type and Sophistication
     final_extracted['scamType'] = ai_result.get('scamType') or detector.classify_scam_type(message)
     final_extracted['sophisticationLevel'] = ai_result.get('sophisticationLevel') or detector.assess_sophistication(message, len(all_texts))
 
@@ -110,7 +285,7 @@ class AIExtractionEngine:
             self.engine = None
 
     def analyze_history(self, history: List[Dict], latest_message: str) -> Optional[Dict]:
-        """Use AI to perform a high-fidelity forensic analysis of the convo."""
+        """Use AI to perform a high-fidelity forensic analysis with USER's prompt."""
         if not self.engine:
             return None
             
@@ -118,70 +293,31 @@ class AIExtractionEngine:
         for msg in history:
             sender = "SCAMMER" if msg.get("sender") == "scammer" else "VICTIM"
             text = msg.get("text", "")
-            convo_text += f"[{sender}]: {text}\n"
+            convo_text += f"{sender}: {text}\n"
         
-        # Add current message if not in history
+        # Add current message
         if not any(m.get('text') == latest_message for m in history):
-            convo_text += f"[SCAMMER]: {latest_message}\n"
+            convo_text += f"SCAMMER: {latest_message}\n"
 
-        prompt = f"""
-        ACT AS: Senior Cyber-Forensics Investigator.
-        TASK: Extract ALL intelligence data points from this scam conversation.
-        
-        CONVERSATION HISTORY:
-        {convo_text}
-
-        EXTRACTION RULES:
-        1. Extract EXACT bank accounts, UPI IDs, phone numbers, and phishing links.
-        2. Identify specific scammer identity claims (names, IDs, branch).
-        3. Classify scam type (UPI fraud, KYC scam, Lottery, etc.).
-        4. Assess sophistication (low/medium/high).
-        5. Identify tactic patterns (urgency, threats, authority impersonation).
-
-        OUTPUT FORMAT: 
-        You MUST return ONLY a valid JSON object. No other text.
-        Structure:
-        {{
-            "bankAccounts": ["string"],
-            "upiIds": ["string"],
-            "phishingLinks": ["string"],
-            "phoneNumbers": ["string"],
-            "suspiciousKeywords": ["string"],
-            "tacticPatterns": ["string"],
-            "organizationalClues": ["string"],
-            "impersonationClaims": ["string"],
-            "employeeIdentity": {{
-                "name": "string",
-                "employee_id": "string",
-                "branch": "string",
-                "title": "string",
-                "manager_name": "string"
-            }},
-            "scamType": "string",
-            "sophisticationLevel": "low|medium|high"
-        }}
-        """
+        prompt = SCAM_INTELLIGENCE_EXTRACTION_PROMPT.format(
+            conversation_text=convo_text
+        )
 
         try:
-            # Use OpenAI client directly for strict JSON output control if possible
-            # Or use the generic generate_response if it's more reliable
+            # Use lower temperature for strict extraction
             response = self.engine.client.chat.completions.create(
                 model="openrouter/free",
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.1, # Low temperature for precise JSON
-                response_format={ "type": "json_object" } if "gpt-4" in prompt else None # Some models support this
+                temperature=0.1
             )
             
-            content = response.choices[0].message.content
-            # Clean JSON if necessary (sometimes AI wraps in ```json ... ```)
-            if "```json" in content:
-                content = content.split("```json")[1].split("```")[0].strip()
-            elif "```" in content:
-                content = content.split("```")[1].split("```")[0].strip()
-                
-            return json.loads(content)
+            raw_content = response.choices[0].message.content
+            cleaned_json = clean_llm_json_response(raw_content)
+            parsed_intel = json.loads(cleaned_json)
+            
+            return normalize_intelligence(parsed_intel)
         except Exception as e:
-            logger.error(f"AI forensic extraction failed: {e}")
+            logger.error(f"AI forensic extraction (USER PROMPT) failed: {e}")
             return None
 
 
@@ -1108,7 +1244,7 @@ class PerfectScamDetector:
     def detect_and_extract(self, message: str, message_count: int) -> Dict[str, Any]:
         """
         Main function: Detect scam and extract ALL intelligence.
-        HYBRID: Merges AI analysis with regex perfection.
+        HYBRID: Merges AI analysis with regex perfection (aligned with USER schema).
         """
         # 1. Start with Regex Perfection (Fast & Guaranteed)
         regex_intel = {
@@ -1128,34 +1264,52 @@ class PerfectScamDetector:
         # 2. Pick up cached AI Intelligence (Deep & Contextual)
         ai_intel = _AI_INTEL_CACHE.get(message, {})
         
-        # 3. Merge Strategies
-        final_extracted = {}
+        # 3. Merge Strategies following USER schema
+        final_extracted = {
+            "scammerNames": [],
+            "phoneNumbers": [],
+            "bankAccounts": [],
+            "upiIds": [],
+            "phishingLinks": [],
+            "suspiciousKeywords": [],
+            "tacticPatterns": [],
+            "impersonationClaims": [],
+            "organizationalClues": [],
+            "scamType": "unknown",
+            "sophisticationLevel": "low"
+        }
         
         # List merging (unique union)
         list_fields = [
-            'bankAccounts', 'upiIds', 'phishingLinks', 'phoneNumbers', 
+            'bankAccounts', 'upiIds', 'phishingLinks', 
             'suspiciousKeywords', 'tacticPatterns', 'organizationalClues', 
             'impersonationClaims'
         ]
         for field in list_fields:
             regex_list = regex_intel.get(field, [])
             ai_list = ai_intel.get(field, [])
-            # Combine and deduplicate
+            if not isinstance(ai_list, list): ai_list = []
             final_extracted[field] = list(dict.fromkeys(regex_list + ai_list))
             
-        # Identity merging (AI wins on complexity, Regex wins on specific fields)
-        final_identity = regex_intel.get('employeeIdentity', {})
-        ai_identity = ai_intel.get('employeeIdentity', {})
-        if isinstance(ai_identity, dict):
-            for k, v in ai_identity.items():
-                if v and v != "string" and v != "unknown":
-                    final_identity[k] = v
-        final_extracted['employeeIdentity'] = final_identity
+        # Phone normalization merge
+        raw_phones = regex_intel.get('phoneNumbers', []) + ai_intel.get('phoneNumbers', [])
+        final_extracted['phoneNumbers'] = list(dict.fromkeys([normalize_phone(p) for p in raw_phones if p]))
+            
+        # Identity merging: scammerNames
+        regex_name = regex_intel.get('employeeIdentity', {}).get('name')
+        ai_names = ai_intel.get('scammerNames', [])
+        if not isinstance(ai_names, list): ai_names = []
+        final_extracted['scammerNames'] = list(dict.fromkeys(ai_names + ([regex_name] if regex_name else [])))
         
-        # Classification merging (AI is usually smarter here)
+        # Identity merging: organizationalClues (adding employee ID if found)
+        eid = regex_intel.get('employeeIdentity', {}).get('employee_id')
+        if eid and f"employee_id_{eid}" not in final_extracted['organizationalClues']:
+            final_extracted['organizationalClues'].append(f"employee_id_{eid}")
+
+        # Classification (AI wins)
         final_extracted['scamType'] = ai_intel.get('scamType') or regex_intel.get('scamType')
         
-        # Sophistication (Highest score wins)
+        # Sophistication
         levels = {'low': 1, 'medium': 2, 'high': 3, 'unknown': 0}
         ai_lvl = levels.get(ai_intel.get('sophisticationLevel', 'unknown'), 0)
         regex_lvl = levels.get(regex_intel.get('sophisticationLevel', 'unknown'), 0)
@@ -1170,27 +1324,22 @@ class PerfectScamDetector:
         }
 
     def generate_agent_notes_hybrid(self, extracted: Dict[str, Any], message_count: int) -> str:
-        """Generate high-fidelity notes from merged data."""
-        scam_type = extracted.get('scamType', 'Unknown')
-        sophistication = extracted.get('sophisticationLevel', 'Unknown')
-        tactics = extracted.get('tacticPatterns', [])
+        """Generate high-fidelity forensic notes."""
+        scam_type = extracted.get('scamType', 'unknown')
+        sophistication = extracted.get('sophisticationLevel', 'low')
         
-        notes = f"SCAM DETECTED: {scam_type} (Sophistication: {sophistication}). "
-        notes += f"Conversation Depth: {message_count} turns. "
+        notes = f"SCAM DETECTED: {scam_type} ({sophistication}). Turns: {message_count}. "
         
-        if tactics:
-            notes += f"Tactics Identified: {', '.join(tactics[:5])}. "
+        names = extracted.get('scammerNames', [])
+        if names:
+            notes += f"Scammer Identity: {', '.join(names)}. "
             
-        identity = extracted.get('employeeIdentity', {})
-        if identity.get('name'):
-            notes += f"Claimed Identity: {identity.get('name')} (ID: {identity.get('employee_id', 'N/A')}). "
-        
         intel_count = len(extracted.get('bankAccounts', [])) + \
                       len(extracted.get('upiIds', [])) + \
                       len(extracted.get('phoneNumbers', [])) + \
                       len(extracted.get('phishingLinks', []))
         
-        notes += f"Forensic Evidence: {intel_count} PII/Financial data points extracted."
+        notes += f"Intelligence yield: {intel_count} data points."
         return notes
 
 
