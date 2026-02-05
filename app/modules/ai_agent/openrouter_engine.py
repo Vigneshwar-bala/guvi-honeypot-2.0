@@ -30,7 +30,7 @@ class OpenRouterEngine:
             print(f"[OpenRouterEngine.generate_response] API Key starts with: {self.api_key[:20]}...")
 
             response = self.client.chat.completions.create(
-                model="meta-llama/llama-3.3-70b-instruct:free",
+                model="openrouter/free",
                 messages=messages,
                 temperature=0.7,
                 max_tokens=150
