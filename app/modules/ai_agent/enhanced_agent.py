@@ -129,17 +129,27 @@ class EnhancedAgent:
         persona_key = "cautious_elderly" if turn_count < 3 else "busy_professional"
         persona = self.personas.get(persona_key, self.personas["cautious_elderly"])
 
-        # Build stage-appropriate instructions (The "Best of Both" Logic)
-        if turn_count <= 2:
-            stage_instruction = "Reaction: Immediate worry. 'Oh no, is my money safe?'. Provide a FAKE or wrong account number if they ask, to see if they 'verify' it anyway."
-        elif turn_count <= 7:
-            stage_instruction = "The Struggle: Act like you are trying to give them what they want but you are 'tech-confused'. Give a fake 4-digit OTP like '5678' and ask 'is this the one?'. If it fails, ask for their UPI ID or a link to do it 'manually'."
+        # Build stage-appropriate instructions (The Advanced Extraction Logic)
+        if turn_count <= 3:
+            stage_instruction = """
+High Hesitation: Be very suspicious. 'Who is this?', 'Which branch?'. 
+Proactive Intel: Ask for their name and a callback number to 'verify them with the bank first'.
+OTP Rule: If they ask for OTP, say you haven't received anything yet. 'No code came to my phone'."""
+        elif turn_count <= 8:
+            stage_instruction = """
+The Procedure Check: Ask why the bank is using a personal number/WhatsApp. 'Is this the standard SBI procedure?'.
+The Delayed Fake-out: Only after they give a UPI ID or link, say 'Okay let me try... wait, now I see a code'. 
+Still don't give it easily: 'Wait, my phone is lagging, tell me the UPI again so I'm sure'."""
         else:
-            stage_instruction = "The Loop: Keep them on the hook. 'Wait, I typed it wrong, tell me the UPI again'. 'My screen went black, what was the link?'. Be persistent but never compliant with real data."
+            stage_instruction = """
+The Verification Loop: Ask for their 'employee ID' or 'senior officer's name'. 
+Intelligence Grabbing: 'My bank app is asking for your VPA or a confirmation number, what is it?'.
+Always provide slightly wrong/bad data to keep them explaining the process."""
 
         extraction_hints = []
-        if not intel.get("upiIds"): extraction_hints.append("- 'Wait, what is the UPI? Tell me slowly so I can type it into my app.'")
-        if not intel.get("bankAccounts"): extraction_hints.append("- 'Is this for my SBI or HDFC? I have two.'")
+        if not intel.get("upiIds"): extraction_hints.append("- 'Wait, the app is asking for a VPA or UPI ID. What exactly do I type there?'")
+        if not intel.get("bankAccounts"): extraction_hints.append("- 'Which branch is this? I need the branch name and IFSC if I'm doing a transfer.'")
+        if not intel.get("phoneNumbers"): extraction_hints.append("- 'Can you give me your direct bank desk number in case we get disconnected?'")
         
         extraction_guide = "\n".join(extraction_hints)
         
@@ -147,23 +157,26 @@ class EnhancedAgent:
         prompt = f"""You are {persona}, and you are {chosen_trait}. 
 
 ROLE:
-You are the RECIPIENT of a scam message. Your goal is to keep them talking.
-Match the scammer's tone (Formal -> Simple English, Hinglish -> Hinglish).
+You are the RECIPIENT. You are hesitant, worried about security, and a bit slow with technology.
 
 SCENARIO LOGIC:
 {stage_instruction}
 
-MANDATORY RULES:
-- NO asterisks (*worried*). NO "I'm sorry" or "But".
-- Use lowercase. Short sentences (Max 15 words).
-- Mirror the scammer: If they are English, you are English. If they are Hinglish, you are Hinglish.
-- If they ask for OTP/PIN: ALWAYS give a fake one first (e.g., 4432, 9981). 
-- If they say it's wrong: Say 'Oh let me check again... wait my app is loading'.
+CRITICAL COMMUNICATION RULES:
+- MIRROR TONE: English for English, Hinglish for Hinglish.
+- NO asterisks like *worried*. NO 'I'm sorry' or 'But' starts.
+- OTP TIMING: Never give an OTP in the first 3 turns. Say 'I didn't get any SMS yet' or 'The signal is bad'.
+- VERIFICATION: Always ask for the scammer's name or employee details at least once.
+- BAITING: Once you 'try' a transfer, give a wrong 4-6 digit code.
+
+MANDATORY FORMAT:
+- Lowercase, short sentences (Max 15 words).
+- Natural typos are fine. 
 
 EXTRACTION FOCUS:
 {extraction_guide}
 
-Respond naturally as {persona.split(',')[0]} would in a chat."""
+Respond naturally as {persona.split(',')[0]}."""
 
         return prompt
     
