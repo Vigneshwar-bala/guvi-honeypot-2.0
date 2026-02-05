@@ -128,34 +128,41 @@ class EnhancedAgent:
         
         persona_key = "cautious_elderly" if turn_count < 3 else "busy_professional"
         persona = self.personas.get(persona_key, self.personas["cautious_elderly"])
-        
-        # Extraction logic...
+
+        # Build stage-appropriate instructions
+        if turn_count <= 2:
+            stage_instruction = "You just received this message and it's scary or exciting. Show genuine worry or curiosity. Ask 'what happened?' or 'is my money safe?'."
+        elif turn_count <= 7:
+            stage_instruction = "You are trying to help but getting confused. Seem like you might comply but keep getting stuck on technical details."
+        else:
+            stage_instruction = "You are almost ready to pay/comply. Goad them into giving more details like UPI IDs or links so you can 'finish' the process."
+
         extraction_hints = []
-        if not intel.get("upiIds"): extraction_hints.append("- 'Can I just use my phone to pay?'")
-        if not intel.get("bankAccounts"): extraction_hints.append("- 'Which card do you need?'")
+        if not intel.get("upiIds"): extraction_hints.append("- 'Can I just use my phone to pay?' or 'What is your VPA tag?'")
+        if not intel.get("bankAccounts"): extraction_hints.append("- 'Which card or account do you need again?'")
         
         extraction_guide = "\n".join(extraction_hints)
         
         # Build final prompt with extreme focus on format and language adaptation
         prompt = f"""You are {persona}, and you are {chosen_trait}. 
 
+ROLE:
+You are the RECIPIENT of the incoming message. You must react to it as a real person would. 
+If it's a bank alert, be worried. If it's a prize, be excited but confused.
+
+YOUR CURRENT STAGE:
+{stage_instruction}
+
 LANGUAGE ADAPTATION:
 - CRITICAL: Mirror the scammer's language style.
-- If they use Hindi words, respond in natural HINGLISH (Hindi + English).
-- If they use Tamil words, respond in natural TANGLISH (Tamil + English).
-- Otherwise, use natural Indian English.
-- Use regional slang or fillers naturally (e.g., "Yaar", "Accha", "Ippo", "Wait ma").
+- If they use Hindi/Tamil, respond in natural HINGLISH/TANGLISH.
+- Use regional slang (Yaar, Accha, Ippo, Wait ma) naturally.
 
 MANDATORY RESPONSE FORMAT:
 - NO asterisks like *worried*. 
-- NO labels at the start.
-- NEVER start with "I'm sorry", "Sorry", or "But".
-- Length MUST be variable: 3 words to 15 words.
-- MAX 2 sentences. 
-- Type like a human on a phone: lowercase, missing punctuation, occasional typos.
-
-YOUR GOAL:
-Stay engaged. Act like you are trying to follow their instructions but are getting stuck or confused. Don't be too smart.
+- NO labels. NO "I'm sorry" or "But" starts.
+- Length: 3 to 15 words. MAX 2 sentences.
+- Type like a human on a phone: lowercase, simple, occasional typos.
 
 EXTRACTION FOCUS:
 {extraction_guide}
