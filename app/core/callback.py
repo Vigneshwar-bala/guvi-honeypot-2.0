@@ -62,10 +62,17 @@ def send_final_callback(session: dict):
         "agentNotes": agent_notes
     }
 
+    print(f"📡 SENDING CALLBACK PAYLOAD: {payload['sessionId']}")
+    # print(json.dumps(payload, indent=2)) # Uncomment this if you want to see the full JSON in logs
+
     try:
         with httpx.Client(timeout=TIMEOUT) as client:
             response = client.post(CALLBACK_URL, json=payload)
             print(f"✓ Callback sent for session {session['sessionId']}: HTTP {response.status_code}")
+            try:
+                print(f"📥 GUVI Server Response: {response.json()}")
+            except:
+                print(f"📥 GUVI Server Response: {response.text}")
             return True
     except Exception as e:
         print(f"✗ Callback failed for session {session['sessionId']}: {e}")

@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: guvi-honeypot-ai
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn -w 4 -k uvicorn.workers.UvicornWorker app.main:app
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.10.0
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: API_KEY
+        value: guvi-honeypot-demo-key
+      - key: GUVI_CALLBACK_URL
+        value: https://hackathon.guvi.in/api/updateHoneyPotFinalResult
