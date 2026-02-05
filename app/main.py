@@ -4,11 +4,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import os
 import traceback
+import json
 from datetime import datetime
 
 from app.schemas.request_response import RequestPayload, HoneypotResponse
 from app.core.session_store import get_or_create_session, update_session
-from app.modules.member2.scam_detection import detect_scam, calculate_sophistication
+from app.modules.member2.scam_detection import detect_scam, calculate_sophistication, detect_scam_v2
 from app.modules.ai_agent.enhanced_agent import EnhancedAgent
 from app.core.callback import send_final_callback
 
@@ -206,10 +207,38 @@ async def honeypot_message(request: RequestPayload, x_api_key: str = Header(None
                 session["callback_sent"] = True
         
         # ============================================
-        # STEP 7: RETURN RESPONSE
+        # STEP 7: ENHANCED INTELLIGENCE EXTRACTION (Member 2)
+        # ============================================
+        # Extract intelligence from message using improved logic
+        intelligence = detect_scam_v2(
+            message=latest_message,
+            message_count=len(conversation_history) + 1
+        )
+
+        print(f"[honeypot_message] Intelligence Extraction Complete")
+        print(f"[honeypot_message] Bank Accounts: {intelligence['extractedIntelligence']['bankAccounts']}")
+        print(f"[honeypot_message] UPI IDs: {intelligence['extractedIntelligence']['upiIds']}")
+        print(f"[honeypot_message] Phone Numbers: {intelligence['extractedIntelligence']['phoneNumbers']}")
+        print(f"[honeypot_message] Tactics: {intelligence['extractedIntelligence']['tacticPatterns']}")
+        print(f"[honeypot_message] Scam Type: {intelligence['extractedIntelligence']['scamType']}")
+        print(f"[honeypot_message] Sophistication: {intelligence['extractedIntelligence']['sophisticationLevel']}")
+
+        # Store intelligence for analysis (optional - for logging/verification)
+        intelligence_output = {
+            "sessionId": request.sessionId,
+            "timestamp": datetime.now().isoformat(),
+            "intelligence": intelligence,
+            "honeypotReply": reply,
+        }
+
+        # Log full extraction to console
+        print(f"\n[INTELLIGENCE OUTPUT]\n{json.dumps(intelligence_output, indent=2)}\n")
+
+        # ============================================
+        # STEP 8: RETURN RESPONSE
         # ============================================
         print("\n" + "="*100)
-        print(f"✅ REQUEST COMPLETED | Session: {request.sessionId}")
+        print(f"✅ REQUEST COMPLETED | Session: {request.sessionId} | Returning Response")
         print("="*100 + "\n")
         
         return HoneypotResponse(status="success", reply=reply)
