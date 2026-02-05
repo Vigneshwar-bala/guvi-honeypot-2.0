@@ -47,39 +47,32 @@ def get_enhanced_agent():
     return enhanced_agent
 
 
-@app.get("/")
-@app.post("/")
-async def root_handler(request: Request, x_api_key: str = Header(None)):
+@app.get("/", tags=["Health"])
+async def root_health():
     """
-    Handles both root GET (health) and root POST (honeypot message).
-    This ensures that automated graders hitting the base URL get the correct response.
+    Health check endpoint at the root.
+    Returns basic system status and confirmation of service availability.
     """
-    if request.method == "GET":
-        return {
-            "status": "success",
-            "service": "Advanced Agentic Scam Honeypot",
-            "version": "2.0.0",
-            "timestamp": datetime.utcnow().isoformat()
-        }
-    
-    # For POST requests to root, process as honeypot message
-    try:
-        body = await request.json()
-        # Parse into RequestPayload
-        from app.schemas.request_response import RequestPayload
-        payload = RequestPayload(**body)
-        return await honeypot_message(payload, x_api_key)
-    except Exception as e:
-        print(f"Error handling root POST: {e}")
-        return JSONResponse(
-            status_code=400,
-            content={"status": "error", "message": "Invalid request format for honeypot message"}
-        )
+    return {
+        "status": "success",
+        "service": "Advanced Agentic Scam Honeypot",
+        "version": "2.0.0",
+        "timestamp": datetime.utcnow().isoformat()
+    }
 
 
-@app.get("/health")
+@app.post("/", tags=["Honeypot"], response_model=HoneypotResponse)
+async def root_honeypot(request: RequestPayload, x_api_key: str = Header(None)):
+    """
+    Honeypot message endpoint at the root for compatibility with automated graders.
+    Processes incoming scam messages and returns AI-generated responses.
+    """
+    return await honeypot_message(request, x_api_key)
+
+
+@app.get("/health", tags=["Health"])
 def health():
-    """Health check endpoint with system status"""
+    """Detailed health check endpoint"""
     return {
         "status": "success",
         "service": "Advanced Agentic Scam Honeypot",
