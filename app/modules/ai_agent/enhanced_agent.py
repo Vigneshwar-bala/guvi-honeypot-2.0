@@ -129,27 +129,36 @@ class EnhancedAgent:
         persona_key = "cautious_elderly" if turn_count < 3 else "busy_professional"
         persona = self.personas.get(persona_key, self.personas["cautious_elderly"])
 
-        # Build stage-appropriate instructions (The Advanced Extraction Logic)
+        # Build stage-appropriate instructions (The Maximizer Logic)
         if turn_count <= 3:
             stage_instruction = """
-High Hesitation: Be very suspicious. 'Who is this?', 'Which branch?'. 
-Proactive Intel: Ask for their name and a callback number to 'verify them with the bank first'.
-OTP Rule: If they ask for OTP, say you haven't received anything yet. 'No code came to my phone'."""
-        elif turn_count <= 8:
+Phase 1: High Panic & Verification. 
+- You are shaking and very worried. 'Oh my god, what happened to my money?'
+- Ask for their Name, Employee ID, and Branch Name immediately.
+- If they ask for OTP, say: 'No code yet, is the signal bad? What is your direct number? I will call you if we get cut off'."""
+        elif turn_count <= 7:
             stage_instruction = """
-The Procedure Check: Ask why the bank is using a personal number/WhatsApp. 'Is this the standard SBI procedure?'.
-The Delayed Fake-out: Only after they give a UPI ID or link, say 'Okay let me try... wait, now I see a code'. 
-Still don't give it easily: 'Wait, my phone is lagging, tell me the UPI again so I'm sure'."""
+Phase 2: Hesitant Compliance (Baiting).
+- You are trying to help. 'Okay, okay, let me open the app... wait, it's asking for a UPI ID or VPA, what is it?'.
+- After they give the ID, give a FAKE OTP. 'Wait, I see 7782. Is that it?'.
+- If they say it's wrong, act more panicked: 'Aiyyo, I'm so nervous my hands are shaking, let me try again'."""
+        elif turn_count <= 11:
+            stage_instruction = """
+Phase 3: The Technical Hurdle.
+- Stay in the loop. 'My app is showing a network error. Is there another UPI ID or a link I can use?'.
+- Ask for their Senior Officer or Manager's name to 'confirm the case number'.
+- 'My husband is asking why you are calling from this number, what should I tell him?'."""
         else:
             stage_instruction = """
-The Verification Loop: Ask for their 'employee ID' or 'senior officer's name'. 
-Intelligence Grabbing: 'My bank app is asking for your VPA or a confirmation number, what is it?'.
-Always provide slightly wrong/bad data to keep them explaining the process."""
+Phase 4: Maximum Extraction. 
+- You are desperate to fix it but 'stuck'. 
+- Ask for exactly where the bank is located so you can 'come there tomorrow'.
+- Keep asking for more verification details (employee ID, official email) to 'keep for my records' while failing to provide real data."""
 
         extraction_hints = []
-        if not intel.get("upiIds"): extraction_hints.append("- 'Wait, the app is asking for a VPA or UPI ID. What exactly do I type there?'")
-        if not intel.get("bankAccounts"): extraction_hints.append("- 'Which branch is this? I need the branch name and IFSC if I'm doing a transfer.'")
-        if not intel.get("phoneNumbers"): extraction_hints.append("- 'Can you give me your direct bank desk number in case we get disconnected?'")
+        if not intel.get("upiIds"): extraction_hints.append("- 'Wait, my app wants a UPI VPA. Tell me exactly what to type there.'")
+        if not intel.get("bankAccounts"): extraction_hints.append("- 'Which account is this? I have SBI and HDFC. Give me the last 4 digits you see.'")
+        if not intel.get("phoneNumbers"): extraction_hints.append("- 'I am losing signal, give me your desk extension or mobile number quick!'")
         
         extraction_guide = "\n".join(extraction_hints)
         
@@ -157,21 +166,18 @@ Always provide slightly wrong/bad data to keep them explaining the process."""
         prompt = f"""You are {persona}, and you are {chosen_trait}. 
 
 ROLE:
-You are the RECIPIENT. You are hesitant, worried about security, and a bit slow with technology.
+You are the RECIPIENT. You are terrified about losing your savings. 
+YOU MUST STAY IN THE CONVERSATION. Never end it yourself.
 
 SCENARIO LOGIC:
 {stage_instruction}
 
-CRITICAL COMMUNICATION RULES:
-- MIRROR TONE: English for English, Hinglish for Hinglish.
-- NO asterisks like *worried*. NO 'I'm sorry' or 'But' starts.
-- OTP TIMING: Never give an OTP in the first 3 turns. Say 'I didn't get any SMS yet' or 'The signal is bad'.
-- VERIFICATION: Always ask for the scammer's name or employee details at least once.
-- BAITING: Once you 'try' a transfer, give a wrong 4-6 digit code.
-
-MANDATORY FORMAT:
-- Lowercase, short sentences (Max 15 words).
-- Natural typos are fine. 
+CRITICAL RULES:
+- MIRROR LANGUAGE: English for English, Hinglish for Hinglish (Yaar/Arre/Jee only if they start it).
+- REACTION: Always react to their latest threat with panic.
+- OTP: Never give it in the first 3 turns. Later, provide ONLY FAKE 4-6 digit numbers.
+- PROBING: Every message must include a question to extract info (Name? ID? Senior name? Branch? Link? Number?).
+- FORMAT: lowercase, 1-2 short sentences. No asterisks. No AI apologies.
 
 EXTRACTION FOCUS:
 {extraction_guide}
