@@ -8,46 +8,82 @@ from app.modules.ai_agent.openrouter_engine import get_openrouter_engine
 # Configure logging
 logger = logging.getLogger(__name__)
 
-# Global cache to bridge detect_scam and detect_scam_perfect without main.py changes
+# Global stores to bridge detect_scam and detect_scam_perfect without main.py changes
 _AI_INTEL_CACHE = {}
+_SOPHISTICATED_INTEL_STORE = {} # Map latest_message -> cumulative_intel
 
 def detect_scam(session: dict, message: str) -> dict:
     """
     Detect scam intent and extract intelligence.
-    NOW ENHANCED: Triggers AI forensic extraction on the full history.
+    REVOLUTIONIZED: Performs a full forensic sweep of the ENTIRE conversation history.
     """
     history = session.get("conversationHistory", [])
-    intel = session.get("extractedIntelligence", {})
     
-    # Trigger AI Extraction in the background (synchronous for this request)
+    # 1. Trigger AI Forensic Analysis on FULL history
     ai_engine = AIExtractionEngine()
-    ai_result = ai_engine.analyze_history(history, message)
+    ai_result = ai_engine.analyze_history(history, message) or {}
     
-    if ai_result:
-        # Cache the AI result for detect_scam_perfect to pick up
-        _AI_INTEL_CACHE[message] = ai_result
+    # 2. Perform Exhaustive Full-History Regex Extraction (Cumulative)
+    # This ensures 100% capture of all PII ever mentioned in the chat
+    detector = PerfectScamDetector()
+    cumulative_regex_intel = {
+        'bankAccounts': [], 'upiIds': [], 'phishingLinks': [], 'phoneNumbers': [],
+        'suspiciousKeywords': [], 'tacticPatterns': [], 'organizationalClues': [],
+        'impersonationClaims': []
+    }
+    
+    # Scan every message in history + current message
+    all_texts = [m.get("text", "") for m in history]
+    if message not in all_texts:
+        all_texts.append(message)
         
-        # Merge signals for confidence calculation
-        signals = ai_result.get('tacticPatterns', []) + [f"AI Detected: {ai_result.get('scamType')}"]
-        
-        # Calculate confidence based on AI sophistication and patterns
-        confidence = 0.5
-        if ai_result.get('sophisticationLevel') == 'high': confidence += 0.3
-        if ai_result.get('bankAccounts') or ai_result.get('upiIds'): confidence += 0.2
-        
-        return {
-            "scamDetected": True,
-            "detected": True,
-            "confidence": min(1.0, confidence),
-            "signals": list(set(signals))
-        }
+    for text in all_texts:
+        cumulative_regex_intel['bankAccounts'].extend(detector.extract_bank_accounts(text))
+        cumulative_regex_intel['upiIds'].extend(detector.extract_upi_ids(text))
+        cumulative_regex_intel['phishingLinks'].extend(detector.extract_phishing_links(text))
+        cumulative_regex_intel['phoneNumbers'].extend(detector.extract_phone_numbers(text))
+        cumulative_regex_intel['suspiciousKeywords'].extend(detector.extract_suspicious_keywords(text))
+        cumulative_regex_intel['tacticPatterns'].extend(detector.extract_tactic_patterns(text))
+        cumulative_regex_intel['organizationalClues'].extend(detector.extract_organizational_clues(text))
+        cumulative_regex_intel['impersonationClaims'].extend(detector.extract_impersonation_claims(text))
 
-    # Fallback to legacy logic if AI fails
+    # Deduplicate everything
+    for k in cumulative_regex_intel:
+        cumulative_regex_intel[k] = list(dict.fromkeys(cumulative_regex_intel[k]))
+
+    # 3. Merge AI result with Cumulative Regex
+    # AI is the "brain" for complex fields, Regex is the "eye" for precise codes
+    final_extracted = {}
+    for field in cumulative_regex_intel:
+        regex_list = cumulative_regex_intel[field]
+        ai_list = ai_result.get(field, [])
+        if not isinstance(ai_list, list): ai_list = []
+        final_extracted[field] = list(dict.fromkeys(regex_list + ai_list))
+
+    # Identity and Type logic
+    final_extracted['employeeIdentity'] = ai_result.get('employeeIdentity') or detector.extract_employee_identity(message)
+    final_extracted['scamType'] = ai_result.get('scamType') or detector.classify_scam_type(message)
+    final_extracted['sophisticationLevel'] = ai_result.get('sophisticationLevel') or detector.assess_sophistication(message, len(all_texts))
+
+    # 4. Store in Global Store for detect_scam_perfect to retrieve
+    # We use the message as the key because that's what detect_scam_perfect receives
+    full_result = {
+        'scamDetected': True,
+        'totalMessagesExchanged': len(all_texts),
+        'extractedIntelligence': final_extracted,
+        'agentNotes': detector.generate_agent_notes_hybrid(final_extracted, len(all_texts))
+    }
+    
+    _SOPHISTICATED_INTEL_STORE[message] = full_result
+    _AI_INTEL_CACHE[message] = ai_result # Safety backup
+    
+    # 5. Return basic response for main.py turn logic
+    confidence = 0.85 if ai_result else 0.5
     return {
         "scamDetected": True,
         "detected": True,
-        "confidence": 0.85,
-        "signals": ["suspicious_pattern_detected"]
+        "confidence": confidence,
+        "signals": final_extracted['tacticPatterns']
     }
 
 def calculate_sophistication(session: dict) -> str:
@@ -1163,7 +1199,18 @@ perfect_detector = PerfectScamDetector()
 
 
 def detect_scam_perfect(message: str, message_count: int = 1) -> Dict[str, Any]:
-    """Public function to detect and extract with PERFECT logic."""
+    """
+    Public function to detect and extract with PERFECT logic.
+    ENHANCED: Returns CUMULATIVE intelligence from the global store.
+    """
+    # Try to retrieve the CUMULATIVE intelligence stored during detect_scam
+    if message in _SOPHISTICATED_INTEL_STORE:
+        result = _SOPHISTICATED_INTEL_STORE[message]
+        # Allow the passed message_count to override if it's different
+        result['totalMessagesExchanged'] = message_count
+        return result
+        
+    # Fallback: If store missed it, run regex on the single message at least
     return perfect_detector.detect_and_extract(message, message_count)
 
 
