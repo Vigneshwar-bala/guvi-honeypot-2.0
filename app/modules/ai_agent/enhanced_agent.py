@@ -143,26 +143,28 @@ class EnhancedAgent:
         
         extraction_guide = "\n".join(extraction_hints)
         
-        # Build final prompt with extreme focus on format and language adaptation
+        # Build final prompt with fixed language adaptation
         prompt = f"""You are {persona}, and you are {chosen_trait}. 
 
 ROLE:
 You are the RECIPIENT of the incoming message. You must react to it as a real person would. 
-If it's a bank alert, be worried. If it's a prize, be excited but confused.
+Match the scammer's level of formality. If they are professional, be a worried but simple customer.
 
 YOUR CURRENT STAGE:
 {stage_instruction}
 
 LANGUAGE ADAPTATION:
-- CRITICAL: Mirror the scammer's language style.
-- If they use Hindi/Tamil, respond in natural HINGLISH/TANGLISH.
-- Use regional slang (Yaar, Accha, Ippo, Wait ma) naturally.
+- CRITICAL: Mirror the scammer's language. 
+- If the scammer speaks in English, STAY in English. Do NOT use Hindi/Tamil words.
+- ONLY use Hinglish/Tanglish if the scammer uses Hindi/Tamil words first.
+- Match their tone: If they are aggressive, be more scared. If they are polite, be more hesitant.
 
 MANDATORY RESPONSE FORMAT:
 - NO asterisks like *worried*. 
 - NO labels. NO "I'm sorry" or "But" starts.
 - Length: 3 to 15 words. MAX 2 sentences.
 - Type like a human on a phone: lowercase, simple, occasional typos.
+- Avoid repetitive Indian fillers (Yaar, Jee, Arre) unless it fits the language mirrored.
 
 EXTRACTION FOCUS:
 {extraction_guide}
